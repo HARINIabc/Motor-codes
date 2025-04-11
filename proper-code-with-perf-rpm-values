@@ -1,0 +1,410 @@
+#include <Arduino.h>
+
+#define pwm 5
+#define dir 7
+
+void countISR1();
+int pid(float);
+void move();
+
+float motor_speed = 0;
+float error;
+float prev_error = 0;
+float setpoint = 1000.0;  // Desired RPM
+
+float proportional = 0;
+float derivative = 0;
+float integral = 0;
+
+float kp = 0.0;
+float ki = 2.0;
+float kd = 0.0;
+
+unsigned long last_time = 0;
+float dt = 0;
+int input_pwm = 0;
+
+class encoder {
+  private:
+    float speed = 0;
+
+  public:
+    int pin_A;
+    int pin_B;
+
+    long prev_encoder_count;
+    unsigned long current_time;
+    unsigned long prev_time;
+    unsigned long ticks_per_rev;
+    volatile long encoder_count = 0;
+
+    encoder(int pin_a, int pin_b, unsigned long ticks);
+    void begin();
+    void count();
+    float rpm();
+};
+
+encoder::encoder(int pin_a , int pin_b, unsigned long ticks) {
+  pin_A = pin_a;
+  pin_B = pin_b;
+  ticks_per_rev = ticks;
+
+  encoder_count = 0;
+  prev_encoder_count = 0;
+  current_time = 0;
+  prev_time = 0;
+
+  pinMode(pin_A, INPUT_PULLUP);
+  pinMode(pin_B, INPUT_PULLUP);
+}
+
+void encoder::count() {
+  if (bitRead(PIND, pin_B) > 0) {
+    encoder_count--;
+} else {
+    encoder_count++;
+}
+
+}
+
+float encoder::rpm() {
+    current_time = millis();
+
+    if (current_time - prev_time >= 100) {  // update every 100 ms
+        speed = (encoder_count - prev_encoder_count) * 600.0 / 
+                (ticks_per_rev * (current_time - prev_time));
+        prev_encoder_count = encoder_count;
+        prev_time = current_time;
+        Serial.println(speed);
+    }
+
+    return speed;
+}
+
+
+
+void encoder::begin() {
+  attachInterrupt(digitalPinToInterrupt(pin_A), countISR1, RISING);
+}
+
+encoder encoder1(2, 3, 46);  // ticks/rev = 46
+
+void setup() {
+  pinMode(pwm, OUTPUT);
+  pinMode(dir, OUTPUT);
+  Serial.begin(9600);
+
+  encoder1.begin();
+
+  // PID and setpoint already initialized globally
+  last_time = millis();
+}
+
+void loop() {
+  motor_speed = encoder1.rpm();
+
+  unsigned long now = millis();
+  dt = (now - last_time) / 1000.0;
+  last_time = now;
+
+  error = setpoint - motor_speed;
+  input_pwm = pid(error);
+  move();
+
+  // Plotting to Serial Plotter
+  //Serial.println(motor_speed);  // Only plot this for smooth display
+}
+
+int pid(float error) {
+  proportional = error;
+  integral += error * dt;
+  derivative = (error - prev_error) / dt;
+  prev_error = error;
+
+  float output = (kp * proportional) + (ki * integral) + (kd * derivative);
+  return constrain(output, -255, 255);  // limit PWM
+}
+
+void move() {
+  if (input_pwm >= 0) {
+    digitalWrite(dir, HIGH);
+  } else {
+    digitalWrite(dir, LOW);
+  }
+
+  analogWrite(pwm, abs(input_pwm));
+}
+
+void countISR1() {
+  encoder1.count();
+}
+
+// #include <Arduino.h>
+// #define pwm 5
+// #define dir 7
+
+// void countISR1();
+// int pid(float);
+// void move();
+
+// float motor_speed = 0;
+// float error;
+// float prev_error = 0;
+// float setpoint=1000;
+
+// float proportional = 0;
+// float derivative = 0;
+// float integral = 0;
+// float kp = 0.5;
+// float ki = 0.0;
+// float kd = 0.0;
+//  // Start with a reasonable RPM
+
+
+// unsigned long int last_time = 0;
+// float dt = 0;
+
+// int input_pwm;
+
+// class encoder{
+
+//   private:
+
+//   float speed = 0;
+
+//   public: 
+
+//   int pin_A;
+//   int pin_B;
+
+//  long prev_encoder_count;
+//   unsigned long int current_time;
+//   unsigned long int prev_time;
+//   unsigned long int ticks_per_rev;
+//   volatile long encoder_count = 0;
+
+
+//   encoder(int pin_A, int pin_B, unsigned long int ticks);
+//   void begin();
+//   void count();
+//   float rpm();
+
+// };
+// encoder::encoder(int pin_a , int pin_b, unsigned long int ticks)
+// {
+//   pin_A=pin_a;
+//   pin_B=pin_b;
+//   ticks_per_rev = ticks; 
+
+//   encoder_count = 0;
+//   prev_encoder_count = 0;
+//   current_time = 0;
+//   prev_time = 0;
+
+//   pinMode(pin_A,INPUT_PULLUP);
+//   pinMode(pin_B,INPUT_PULLUP);
+// }
+// void encoder:: count()
+// {
+  
+//   if (bitRead(PIND,pin_B)>0)
+//   {
+//     encoder_count++;
+//   }
+//   else
+//   {
+//     encoder_count--;
+//   }
+//   //Serial.print(" ");
+//   //Serial.println((digitalRead(pin_B)));
+//   //Serial.println(encoder_count);
+ 
+
+// }
+
+// // float encoder:: rpm()
+// // {
+// //     current_time = millis();
+// //     long speed = 0;
+
+// //     // Serial.println(ticks_per_rev);
+// //    if(current_time - prev_time >= 500) {
+// //     speed = (encoder_count - prev_encoder_count);
+    
+// //     Serial.print("encoder_count: ");
+// // Serial.println(encoder_count);
+// // Serial.print("prev_encoder_count: ");
+// // Serial.println(prev_encoder_count);
+// // Serial.print("Speed (counts/0.5s): ");
+// // Serial.println(speed);
+// //     prev_time = current_time;
+// //     prev_encoder_count = encoder_count;
+// // }
+
+// //     //   // error = setpoint - speed; 
+
+// //     //   // error_integral = error_integral + error;
+
+// //     //   // input_pwm = (Kp*error)(200/12.9) + (Ki*error_integral)(200/12.9);  // 200 rpm for 12.9 pwm so that fraction for convertion
+
+// //     //   // if(input_pwm!=prev_pwm)
+   
+// //    // Serial.print(encoder_count);
+// //     //   // {
+// //     //   //   input_pwm = input_pwm+prev_pwm;
+// //     //   // }
+
+// //     //   // input_pwm = constrain(input_pwm,0,255);
+
+// //     //   // prev_pwm = input_pwm;
+// //     return speed;
+// //     }
+// float encoder::rpm()
+// {
+//     current_time = millis();
+//     if (current_time - prev_time >= 500) // every 0.5s
+//     {
+//         long count_diff = encoder_count - prev_encoder_count;
+//         speed = (count_diff / 0.5) * 60.0 / ticks_per_rev;
+
+//         Serial.print("Encoder count: ");
+//         Serial.println(encoder_count);
+//         Serial.print("Prev encoder count: ");
+//         Serial.println(prev_encoder_count);
+//         Serial.print("Speed (counts/0.5s): ");
+//         Serial.println(count_diff);
+//         Serial.print("Calculated RPM: ");
+//         Serial.println(speed);
+//         Serial.println("---------");
+
+//         prev_encoder_count = encoder_count;
+//         prev_time = current_time;
+//     }
+
+//     return speed;
+// }
+
+
+
+
+// void encoder::begin() {
+//     Serial.begin(9600);
+//     attachInterrupt(digitalPinToInterrupt(2), countISR1, RISING);
+//     //Serial.println("hi");
+// }
+
+ 
+// encoder encoder1(2,3,46);
+
+
+
+// void setup()
+// {
+//     pinMode(pwm,OUTPUT); //pwm
+//     pinMode(dir,OUTPUT); //dir
+
+//     //pinMode(2,INPUT);
+
+//     Serial.begin(9600); 
+//     encoder1.begin();
+
+//     setpoint = 1000.0;
+
+// }
+
+// void loop()
+// { 
+//     // digitalWrite(dir,HIGH);
+//     // analogWrite(pwm,70);
+//     // //Serial.println(digitalRead(2));
+//     // motor_speed = encoder1.rpm();
+  
+// Serial.println(motor_speed); // Nothing else!
+
+
+
+//     // motor_speed = encoder1.rpm();
+//     // error = setpoint - motor_speed;
+
+//     // unsigned long int now = millis();
+//     // dt = (now - last_time) / 1000.0;
+//     // last_time = now;
+
+//     // input_pwm = pid(error);
+//     // move();
+//     // Serial.print("motor-speed:");
+//     // Serial.println(motor_speed);
+//     // Serial.print(" ");
+//     // //Serial.println(setpoint);
+
+//     // delay(10);  // just to make plot smooth
+
+
+
+
+//     //error = setpoint - encoder1.rpm(); 
+
+//     // Serial.print(erro?
+//     // Serial.println(encoder1.rpm());
+//     // Serial.print(" ");
+//     // Serial.print((int)input_pwm);
+//     // Serial.print(" ");
+//     // Serial.print(encoder1.encoder_count);
+//     // Serial.println();
+
+
+//     ////
+
+
+//     // unsigned long int now = millis();
+//     // dt = (now - last_time)/1000.0;
+//     // last_time = now;
+
+//     // error = setpoint - encoder1.rpm();
+
+//     // input_pwm = pid(error);
+
+//     // move(input_pwm);
+
+
+// }
+
+// int pid(float error)
+// {
+//   proportional = error;
+//   integral = integral + error*dt;
+//   derivative = (error - prev_error)/dt;
+//   prev_error = error;
+
+//   float output = (kp*proportional) + (ki*integral) + (kd*derivative);
+//   return output;
+// }
+
+// // void move()
+// // {
+// //   if(input_pwm>=0)
+// //   {
+// //     digitalWrite(dir,HIGH);
+// //   }
+// //   else
+// //   {
+// //     digitalWrite(dir,LOW); //the high or low must be reconfigured based on encoder
+// //   }
+
+// //   analogWrite(pwm,abs(input_pwm));
+// // }
+// void move()
+// {
+//   if(input_pwm >= 0)
+//     digitalWrite(dir, HIGH);
+//   else
+//     digitalWrite(dir, LOW);
+
+//   analogWrite(pwm, constrain(abs(input_pwm), 0, 255));
+// }
+
+
+// void countISR1()
+// {
+//   encoder1.count();
+// }
